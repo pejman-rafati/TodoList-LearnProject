@@ -1,26 +1,90 @@
 from django.contrib import admin
+from django.db.models import Count
+from django.urls import reverse
+from django.utils.html import format_html, urlencode
+
 from . import models
+
 
 # Register your models here.
 
-admin.site.register(models.Reminder)
+@admin.register(models.Reminder)
+class ReminderAdmin(admin.ModelAdmin):
+    list_display = ('alarm_on', 'task', 'user')
+    list_select_related = ['task', 'user']
+    list_filter = ['user', 'alarm_on']
 
 
 @admin.register(models.List)
 class ListAdmin(admin.ModelAdmin):
-    list_display = ('title', 'user')
+    list_display = ('title', 'user', 'tasks_number')
+    ordering = ['user', 'task']
+    list_filter = ['user']
+
+    @admin.display(ordering='tasks_number')
+    def tasks_number(self, list):
+        url = reverse('admin:todo_task_changelist') + '?' + urlencode({'user__id': str(list.user.id)})
+        return format_html('<a href="{}">{}</a>', url, list.tasks_number)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(tasks_number=Count('task'))
+
+
+class TaskStatusFilter(admin.SimpleListFilter):
+    title = 'Status'
+    parameter_name = 'status'
+
+    def lookups(self, request, model_admin):
+        return [
+            ('done', 'Done'),
+            ('not_done', 'Not Done'),
+        ]
+
+    def queryset(self, request, queryset):
+        if self.value() == 'done':
+            return queryset.filter(status=True)
+        elif self.value() == 'not_done':
+            return queryset.filter(status=False)
 
 
 @admin.register(models.Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ['title', 'status', 'priority', 'list']
-    ordering = ['title']
-    list_editable = ['status', 'priority', 'list']
+    list_display = ['title', 'status', 'priority', 'list', 'created_at', 'reminders', 'user']
+    ordering = ['created_at']
+    list_editable = ['priority', 'list', 'status']
+    list_select_related = ['list', 'user']
+    list_filter = ['user', 'list', 'start_time', TaskStatusFilter]
     list_per_page = 10
+
+    @admin.display(ordering='reminders')
+    def reminders(self, task):
+        if task.reminders == 0:
+            return 'Null'
+        else:
+            url = reverse('admin:todo_reminder_changelist') + '?' + urlencode({'task__id': str(task.id)})
+            return format_html('<a href="{}">{}</a>', url, task.reminders)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(reminders=Count('reminder'))
 
 
 @admin.register(models.User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ('first_name', 'last_name', 'email')
-    list_editable = ['email']
+    list_display = ('first_name', 'last_name', 'email', 'type', 'task_quantity', 'list_quantity')
+    list_editable = ['type']
+    ordering = ['first_name', 'last_name']
+    search_fields = ['first_name__istartswith', 'last_name__istartswith', 'email__istartswith']
     list_per_page = 10
+
+    @admin.display(ordering='task_quantity')
+    def task_quantity(self, user):
+        url = reverse('admin:todo_task_changelist') + '?' + urlencode({'user__id': str(user.id)})
+        return format_html('<a href="{}">{}</a>', url, user.task_quantity)
+
+    @admin.display(ordering='list_quantity')
+    def list_quantity(self, user):
+        url = reverse('admin:todo_list_changelist') + '?' + urlencode({'user__id': str(user.id)})
+        return format_html('<a href="{}">{}</a>', url, user.list_quantity)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(task_quantity=Count('task'), list_quantity=Count('list'))
