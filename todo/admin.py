@@ -1,9 +1,10 @@
 from django.contrib import admin, messages
 from django.db.models.aggregates import Count
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Subquery, OuterRef
 from django.utils.html import format_html, urlencode
 from django.urls import reverse
 from . import models
+from .models import User
 
 
 # Register your models here.
@@ -26,8 +27,23 @@ class UserAdmin(admin.ModelAdmin):
         url = reverse('admin:todo_list_changelist') + '?' + urlencode({'user__id': str(user.id)})
         return format_html('<a href="{}">{}</a>', url, user.list_quantity)
 
+    # this get_queryset shows wrong the value of the count of lists
+    # def get_queryset(self, request):
+    #     return super().get_queryset(request).annotate(task_quantity=Count('task'), list_quantity=Count('list'))
+
     def get_queryset(self, request):
-        return super().get_queryset(request).annotate(task_quantity=Count('task'), list_quantity=Count('list'))
+        return super().get_queryset(request).annotate(
+            task_quantity=Subquery(
+                User.objects.filter(id=OuterRef('id'))
+                .annotate(task_count=Count('task'))
+                .values('task_count')[:1]
+            ),
+            list_quantity=Subquery(
+                User.objects.filter(id=OuterRef('id'))
+                .annotate(list_count=Count('list'))
+                .values('list_count')[:1]
+            )
+        )
 
 
 class ReminderInline(admin.TabularInline):
@@ -38,13 +54,14 @@ class ReminderInline(admin.TabularInline):
 class TaskInline(admin.TabularInline):
     model = models.Task
     extra = 0
+    search_fields = ['title', 'description']
 
 
 @admin.register(models.Reminder)
 class ReminderAdmin(admin.ModelAdmin):
     list_display = ('alarm_on', 'task', 'user')
     list_select_related = ['task', 'user']
-    list_filter = ['user', 'alarm_on']
+    list_filter = ['task', 'user', 'alarm_on']
 
 
 @admin.register(models.List)
@@ -89,7 +106,7 @@ class TaskAdmin(admin.ModelAdmin):
     exclude = ['status']
     preserve_filters = {'list': 'Null'}
     autocomplete_fields = ['user']
-    ordering = ['created_at']
+    ordering = ['-created_at']
     list_editable = ['priority', 'list', 'status']
     list_select_related = ['list', 'user']
     list_filter = ['user', 'list', 'start_time', TaskStatusFilter]

@@ -35,9 +35,10 @@ class List(models.Model):
 
 
 def validate_start_end_time(value):
-    today = timezone.now().date()
-    if value.date() < today:
-        raise ValidationError('Start time cannot be earlier than today.')
+    if value:
+        today = timezone.localdate()
+        if value.date() < today:
+            raise ValidationError('Start time cannot be earlier than today.')
 
 
 class Task(models.Model):
